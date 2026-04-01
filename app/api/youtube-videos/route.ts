@@ -5,95 +5,95 @@ interface Video {
   url: string
 }
 
-// Helper to parse ISO 8601 duration to seconds
-function parseDuration(duration: string): number {
-  const regex = /PT(\d+H)?(\d+M)?(\d+S)?/
-  const matches = duration.match(regex)
-  
-  const hours = parseInt(matches?.[1] || 0) * 3600
-  const minutes = parseInt(matches?.[2] || 0) * 60
-  const seconds = parseInt(matches?.[3] || 0)
-  
-  return hours + minutes + seconds
-}
-
 export async function GET() {
   try {
-    const apiKey = "AIzaSyBv-W6AMNxvB5MkKPF2BVjarqgcuDMTqsM"
-    const channelId = "UCqCR3PZqfIA9jaIZk0ecOdQ"
+    const channelUrl = "https://www.youtube.com/@PemkabGowa/videos"
+    
+    console.log(`[v0] Fetching videos from: ${channelUrl}`)
 
-    console.log(`[v0] Fetching videos from YouTube Data API v3 for channel: ${channelId}`)
+    const response = await fetch(channelUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      },
+    })
 
-    // Use YouTube Data API v3 to search for videos (fetch more to account for shorts filtering)
-    const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search")
-    searchUrl.searchParams.append("key", apiKey)
-    searchUrl.searchParams.append("channelId", channelId)
-    searchUrl.searchParams.append("part", "snippet")
-    searchUrl.searchParams.append("order", "date")
-    searchUrl.searchParams.append("maxResults", "20")
-    searchUrl.searchParams.append("type", "video")
-
-    console.log(`[v0] Searching for videos...`)
-
-    const searchResponse = await fetch(searchUrl.toString())
-
-    if (!searchResponse.ok) {
-      console.error(`[v0] Search API fetch failed with status ${searchResponse.status}`)
-      throw new Error(`YouTube API error: ${searchResponse.status}`)
+    if (!response.ok) {
+      console.error(`[v0] Failed to fetch channel page: ${response.status}`)
+      throw new Error(`Failed to fetch channel page: ${response.status}`)
     }
 
-    const searchData = await searchResponse.json()
-    console.log(`[v0] Search API response received with ${searchData.items?.length || 0} items`)
+    const html = await response.text()
+    console.log(`[v0] Channel page fetched, analyzing content...`)
 
-    // Extract video IDs from search results
-    const videoIds = (searchData.items || []).map((item: any) => item.id.videoId)
-    console.log(`[v0] Video IDs to check: ${videoIds.join(", ")}`)
-
-    // Get video details including duration
-    const videosUrl = new URL("https://www.googleapis.com/youtube/v3/videos")
-    videosUrl.searchParams.append("key", apiKey)
-    videosUrl.searchParams.append("id", videoIds.join(","))
-    videosUrl.searchParams.append("part", "snippet,contentDetails")
-
-    console.log(`[v0] Fetching video details...`)
-
-    const videosResponse = await fetch(videosUrl.toString())
-
-    if (!videosResponse.ok) {
-      console.error(`[v0] Videos API fetch failed with status ${videosResponse.status}`)
-      throw new Error(`YouTube API error: ${videosResponse.status}`)
+    // Extract ytInitialData from the HTML
+    const ytInitialDataMatch = html.match(/var ytInitialData = ({.*?});/)
+    if (!ytInitialDataMatch) {
+      console.error("[v0] Could not find ytInitialData in page")
+      throw new Error("Could not parse YouTube page data")
     }
 
-    const videosData = await videosResponse.json()
-    console.log(`[v0] Videos API response received with ${videosData.items?.length || 0} items`)
+    const data = JSON.parse(ytInitialDataMatch[1])
+    
+    // Navigate through the data structure to find videos
+    const tabs = data?.contents?.twoColumnBrowseResultsRenderer?.tabs || []
+    console.log(`[v0] Found ${tabs.length} tabs`)
 
-    // Filter out shorts (duration < 60 seconds) and limit to 5 videos
-    const videos: Video[] = []
-    for (const item of videosData.items || []) {
-      if (videos.length >= 5) break
-
-      const videoId = item.id
-      const title = item.snippet.title
-      const thumbnail = item.snippet.thumbnails?.high?.url || `/placeholder.svg?height=180&width=320`
-      const duration = parseDuration(item.contentDetails.duration)
-
-      console.log(`[v0] Video: ${title}, Duration: ${duration}s`)
-
-      // Only include videos that are at least 60 seconds
-      if (duration >= 60) {
-        videos.push({
-          id: videoId,
-          title,
-          thumbnail,
-          url: `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&showinfo=0&enablejsapi=1`,
-        })
-        console.log(`[v0] Added to results`)
-      } else {
-        console.log(`[v0] Skipped (short video)`)
+    let videoItems: any[] = []
+    
+    for (const tab of tabs) {
+      const tabContent = tab?.tabRenderer?.content
+      if (tabContent) {
+        const richGridRenderer = tabContent.richGridRenderer
+        if (richGridRenderer?.contents) {
+          videoItems = richGridRenderer.contents
+          console.log(`[v0] Found ${videoItems.length} items in grid`)
+          break
+        }
       }
     }
 
-    console.log(`[v0] Successfully fetched ${videos.length} non-short videos from YouTube Data API`)
+    // Filter and extract video information
+    const videos: Video[] = []
+    
+    for (const item of videoItems) {
+      if (videos.length >= 5) break
+
+      const videoRenderer = item?.richItemRenderer?.content?.videoRenderer
+      if (!videoRenderer) continue
+
+      const videoId = videoRenderer.videoId
+      const title = videoRenderer.title?.runs?.[0]?.text || videoRenderer.title?.simpleText || "Untitled"
+      
+      // Get thumbnail
+      const thumbnail = videoRenderer.thumbnail?.thumbnails?.[videoRenderer.thumbnail.thumbnails.length - 1]?.url || `/placeholder.svg?height=180&width=320`
+      
+      // Check if it's a short by looking at badge
+      const badge = videoRenderer.badges?.[0]?.metadataBadgeRenderer?.label || ""
+      const isShort = badge.includes("Short") || badge.includes("Shorts")
+      
+      // Also check duration if available
+      const durationText = videoRenderer.lengthText?.simpleText || ""
+      const isDurationShort = durationText && parseInt(durationText) < 60
+      
+      console.log(`[v0] Video: ${title}, Duration: ${durationText}, IsShort: ${isShort}`)
+
+      // Skip shorts
+      if (isShort || isDurationShort) {
+        console.log(`[v0] Skipped (short video)`)
+        continue
+      }
+
+      videos.push({
+        id: videoId,
+        title,
+        thumbnail,
+        url: `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&showinfo=0&enablejsapi=1`,
+      })
+      
+      console.log(`[v0] Added to results`)
+    }
+
+    console.log(`[v0] Successfully extracted ${videos.length} videos`)
     return Response.json({ videos })
   } catch (error) {
     console.error("[v0] Error fetching YouTube videos:", error)
