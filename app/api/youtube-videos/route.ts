@@ -1,46 +1,64 @@
+// Channel ID untuk @PemkabGowa
+const CHANNEL_ID = "UC4d3pXh6gVgcg9NVVJhE0Yw"
+
+interface Video {
+  id: string
+  title: string
+  thumbnail: string
+  url: string
+}
+
 export async function GET() {
   try {
-    const apiKey = process.env.YOUTUBE_API_KEY
-    const channelId = process.env.YOUTUBE_CHANNEL_ID
+    console.log("[v0] Fetching YouTube videos from RSS feed...")
 
-    if (!apiKey || !channelId) {
-      console.error("[v0] Missing YOUTUBE_API_KEY or YOUTUBE_CHANNEL_ID")
-      return Response.json(
-        {
-          error: "YouTube API tidak dikonfigurasi. Tambahkan YOUTUBE_API_KEY dan YOUTUBE_CHANNEL_ID ke environment variables.",
-          videos: [],
-        },
-        { status: 400 }
-      )
-    }
+    // Gunakan YouTube RSS feed (tidak perlu API key)
+    const rssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${CHANNEL_ID}`
 
-    // Fetch latest videos from channel
-    const url = new URL("https://www.googleapis.com/youtube/v3/search")
-    url.searchParams.append("key", apiKey)
-    url.searchParams.append("channelId", channelId)
-    url.searchParams.append("part", "snippet")
-    url.searchParams.append("order", "date")
-    url.searchParams.append("maxResults", "5")
-    url.searchParams.append("type", "video")
-
-    const response = await fetch(url.toString())
+    const response = await fetch(rssUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      },
+    })
 
     if (!response.ok) {
-      throw new Error(`YouTube API error: ${response.status}`)
+      console.error(`[v0] RSS fetch failed with status ${response.status}`)
+      throw new Error(`Failed to fetch RSS feed: ${response.status}`)
     }
 
-    const data = await response.json()
+    const xml = await response.text()
+    console.log("[v0] Parsing RSS XML...")
 
-    const videos = (data.items || []).map((item: any) => ({
-      id: item.id.videoId,
-      title: item.snippet.title,
-      thumbnail: item.snippet.thumbnails.high.url,
-      url: `https://www.youtube-nocookie.com/embed/${item.id.videoId}?rel=0&showinfo=0&enablejsapi=1`,
-    }))
+    // Parse XML sederhana untuk mendapatkan video entries
+    const entries = xml.match(/<entry>[\s\S]*?<\/entry>/g) || []
+    console.log(`[v0] Found ${entries.length} entries in RSS feed`)
 
+    const videos: Video[] = entries.slice(0, 5).map((entry: string) => {
+      // Extract video ID dari link
+      const videoIdMatch = entry.match(/yt:videoId>([^<]+)<\/yt:videoId/)
+      const videoId = videoIdMatch ? videoIdMatch[1] : ""
+
+      // Extract title
+      const titleMatch = entry.match(/<title>([^<]+)<\/title>/)
+      const title = titleMatch ? titleMatch[1] : "Untitled"
+
+      // Extract thumbnail
+      const thumbnailMatch = entry.match(/media:thumbnail url="([^"]+)"/)
+      const thumbnail = thumbnailMatch ? thumbnailMatch[1] : `/placeholder.svg?height=180&width=320`
+
+      return {
+        id: videoId,
+        title,
+        thumbnail,
+        url: `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&showinfo=0&enablejsapi=1`,
+      }
+    })
+
+    console.log(`[v0] Successfully fetched ${videos.length} videos`)
     return Response.json({ videos })
   } catch (error) {
     console.error("[v0] Error fetching YouTube videos:", error)
-    return Response.json({ error: "Failed to fetch videos", videos: [] }, { status: 500 })
+    return Response.json({ error: "Gagal memuat video dari YouTube", videos: [] }, { status: 500 })
   }
 }
