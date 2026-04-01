@@ -3,6 +3,7 @@ interface Video {
   title: string
   thumbnail: string
   url: string
+  duration?: number
 }
 
 // Helper function to extract channel ID from channel handle
@@ -41,6 +42,21 @@ async function getChannelIdFromHandle(handle: string): Promise<string | null> {
     return null
   } catch (error) {
     console.error("[v0] Error getting channel ID:", error)
+    return null
+  }
+}
+
+// Get video duration using noembed API
+async function getVideoDuration(videoId: string): Promise<number | null> {
+  try {
+    const response = await fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${videoId}`)
+    if (!response.ok) {
+      return null
+    }
+    const data = await response.json()
+    return data.duration || null
+  } catch (error) {
+    console.error(`[v0] Error getting duration for ${videoId}:`, error)
     return null
   }
 }
@@ -91,7 +107,7 @@ export async function GET() {
     const entries = xml.match(/<entry>[\s\S]*?<\/entry>/g) || []
     console.log(`[v0] Found ${entries.length} entries in RSS feed`)
 
-    const videos: Video[] = entries.slice(0, 5).map((entry: string) => {
+    const videoCandidates: Video[] = entries.map((entry: string) => {
       // Extract video ID dari link
       const videoIdMatch = entry.match(/yt:videoId>([^<]+)<\/yt:videoId/)
       const videoId = videoIdMatch ? videoIdMatch[1] : ""
@@ -112,7 +128,21 @@ export async function GET() {
       }
     })
 
-    console.log(`[v0] Successfully fetched ${videos.length} videos`)
+    // Filter out shorts (duration < 60 seconds)
+    const videos: Video[] = []
+    for (const video of videoCandidates) {
+      if (videos.length >= 5) break
+      
+      const duration = await getVideoDuration(video.id)
+      if (duration && duration >= 60) {
+        videos.push({ ...video, duration })
+        console.log(`[v0] Added video: ${video.title} (${duration}s)`)
+      } else if (duration && duration < 60) {
+        console.log(`[v0] Skipped short: ${video.title} (${duration}s)`)
+      }
+    }
+
+    console.log(`[v0] Successfully fetched ${videos.length} non-short videos`)
     return Response.json({ videos })
   } catch (error) {
     console.error("[v0] Error fetching YouTube videos:", error)
