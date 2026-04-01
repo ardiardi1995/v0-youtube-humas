@@ -5,6 +5,27 @@ interface Video {
   url: string
 }
 
+// Helper function to parse duration from MM:SS or M:SS format
+function parseDurationString(durationText: string): number {
+  if (!durationText) return 0
+  
+  const parts = durationText.split(":")
+  let totalSeconds = 0
+  
+  if (parts.length === 3) {
+    // HH:MM:SS
+    totalSeconds = parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2])
+  } else if (parts.length === 2) {
+    // MM:SS
+    totalSeconds = parseInt(parts[0]) * 60 + parseInt(parts[1])
+  } else {
+    // SS only
+    totalSeconds = parseInt(parts[0])
+  }
+  
+  return totalSeconds
+}
+
 export async function GET() {
   try {
     const channelUrl = "https://www.youtube.com/@PemkabGowa/videos"
@@ -71,11 +92,12 @@ export async function GET() {
       const badge = videoRenderer.badges?.[0]?.metadataBadgeRenderer?.label || ""
       const isShort = badge.includes("Short") || badge.includes("Shorts")
       
-      // Also check duration if available
+      // Parse duration correctly (MM:SS format)
       const durationText = videoRenderer.lengthText?.simpleText || ""
-      const isDurationShort = durationText && parseInt(durationText) < 60
+      const durationSeconds = parseDurationString(durationText)
+      const isDurationShort = durationSeconds > 0 && durationSeconds < 60
       
-      console.log(`[v0] Video: ${title}, Duration: ${durationText}, IsShort: ${isShort}`)
+      console.log(`[v0] Video: ${title}, Duration: ${durationText} (${durationSeconds}s), IsShort: ${isShort}`)
 
       // Skip shorts
       if (isShort || isDurationShort) {
