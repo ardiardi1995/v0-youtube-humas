@@ -1,6 +1,3 @@
-// Channel ID untuk @PemkabGowa
-const CHANNEL_ID = "UC4d3pXh6gVgcg9NVVJhE0Yw"
-
 interface Video {
   id: string
   title: string
@@ -8,17 +5,77 @@ interface Video {
   url: string
 }
 
+// Helper function to extract channel ID from channel handle
+async function getChannelIdFromHandle(handle: string): Promise<string | null> {
+  try {
+    console.log(`[v0] Getting channel ID for @${handle}...`)
+    
+    const channelUrl = `https://www.youtube.com/@${handle}`
+    const response = await fetch(channelUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      },
+    })
+
+    if (!response.ok) {
+      console.error(`[v0] Failed to fetch channel page: ${response.status}`)
+      return null
+    }
+
+    const html = await response.text()
+    
+    // Extract channel ID dari meta tag atau dari URL redirect
+    const channelIdMatch = html.match(/"channelId":"([^"]+)"/)
+    if (channelIdMatch) {
+      console.log(`[v0] Found channel ID: ${channelIdMatch[1]}`)
+      return channelIdMatch[1]
+    }
+
+    // Try alternative pattern
+    const altMatch = html.match(/\/channel\/([^"\/\s]+)/)
+    if (altMatch) {
+      console.log(`[v0] Found channel ID (alt): ${altMatch[1]}`)
+      return altMatch[1]
+    }
+
+    return null
+  } catch (error) {
+    console.error("[v0] Error getting channel ID:", error)
+    return null
+  }
+}
+
 export async function GET() {
   try {
-    console.log("[v0] Fetching YouTube videos from RSS feed...")
+    const channelHandle = process.env.YOUTUBE_CHANNEL_HANDLE || "PemkabGowa"
+    console.log(`[v0] Fetching videos for channel: @${channelHandle}`)
+
+    // Get channel ID
+    let channelId = process.env.YOUTUBE_CHANNEL_ID
+    if (!channelId) {
+      channelId = await getChannelIdFromHandle(channelHandle)
+    }
+
+    if (!channelId) {
+      console.error("[v0] Could not determine channel ID")
+      return Response.json(
+        {
+          error: "Tidak dapat menemukan channel ID. Pastikan channel @PemkabGowa valid.",
+          videos: [],
+        },
+        { status: 400 }
+      )
+    }
+
+    console.log(`[v0] Using channel ID: ${channelId}`)
 
     // Gunakan YouTube RSS feed (tidak perlu API key)
-    const rssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${CHANNEL_ID}`
+    const rssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`
+    console.log(`[v0] Fetching from RSS: ${rssUrl}`)
 
     const response = await fetch(rssUrl, {
       headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
       },
     })
 
