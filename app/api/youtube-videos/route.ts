@@ -5,104 +5,40 @@ interface Video {
   url: string
 }
 
-// Helper function to extract channel ID from channel handle
-async function getChannelIdFromHandle(handle: string): Promise<string | null> {
-  try {
-    console.log(`[v0] Getting channel ID for @${handle}...`)
-    
-    const channelUrl = `https://www.youtube.com/@${handle}`
-    const response = await fetch(channelUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      },
-    })
-
-    if (!response.ok) {
-      console.error(`[v0] Failed to fetch channel page: ${response.status}`)
-      return null
-    }
-
-    const html = await response.text()
-    
-    // Extract channel ID dari meta tag atau dari URL redirect
-    const channelIdMatch = html.match(/"channelId":"([^"]+)"/)
-    if (channelIdMatch) {
-      console.log(`[v0] Found channel ID: ${channelIdMatch[1]}`)
-      return channelIdMatch[1]
-    }
-
-    // Try alternative pattern
-    const altMatch = html.match(/\/channel\/([^"\/\s]+)/)
-    if (altMatch) {
-      console.log(`[v0] Found channel ID (alt): ${altMatch[1]}`)
-      return altMatch[1]
-    }
-
-    return null
-  } catch (error) {
-    console.error("[v0] Error getting channel ID:", error)
-    return null
-  }
-}
-
 export async function GET() {
   try {
-    const channelHandle = process.env.YOUTUBE_CHANNEL_HANDLE || "PemkabGowa"
-    console.log(`[v0] Fetching videos for channel: @${channelHandle}`)
+    const apiKey = "AIzaSyBv-W6AMNxvB5MkKPF2BVjarqgcuDMTqsM"
+    const channelId = "UCqCR3PZqfIA9jaIZk0ecOdQ"
 
-    // Get channel ID
-    let channelId = process.env.YOUTUBE_CHANNEL_ID
-    if (!channelId) {
-      channelId = await getChannelIdFromHandle(channelHandle)
-    }
+    console.log(`[v0] Fetching videos from YouTube Data API v3 for channel: ${channelId}`)
 
-    if (!channelId) {
-      console.error("[v0] Could not determine channel ID")
-      return Response.json(
-        {
-          error: "Tidak dapat menemukan channel ID. Pastikan channel @PemkabGowa valid.",
-          videos: [],
-        },
-        { status: 400 }
-      )
-    }
+    // Use YouTube Data API v3 to search for videos
+    const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search")
+    searchUrl.searchParams.append("key", apiKey)
+    searchUrl.searchParams.append("channelId", channelId)
+    searchUrl.searchParams.append("part", "snippet")
+    searchUrl.searchParams.append("order", "date")
+    searchUrl.searchParams.append("maxResults", "5")
+    searchUrl.searchParams.append("type", "video")
 
-    console.log(`[v0] Using channel ID: ${channelId}`)
+    console.log(`[v0] API URL: ${searchUrl.toString()}`)
 
-    // Gunakan YouTube RSS feed (tidak perlu API key)
-    const rssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`
-    console.log(`[v0] Fetching from RSS: ${rssUrl}`)
-
-    const response = await fetch(rssUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      },
-    })
+    const response = await fetch(searchUrl.toString())
 
     if (!response.ok) {
-      console.error(`[v0] RSS fetch failed with status ${response.status}`)
-      throw new Error(`Failed to fetch RSS feed: ${response.status}`)
+      console.error(`[v0] API fetch failed with status ${response.status}`)
+      const errorText = await response.text()
+      console.error(`[v0] Error response: ${errorText}`)
+      throw new Error(`YouTube API error: ${response.status}`)
     }
 
-    const xml = await response.text()
-    console.log("[v0] Parsing RSS XML...")
+    const data = await response.json()
+    console.log(`[v0] API response received with ${data.items?.length || 0} items`)
 
-    // Parse XML sederhana untuk mendapatkan video entries
-    const entries = xml.match(/<entry>[\s\S]*?<\/entry>/g) || []
-    console.log(`[v0] Found ${entries.length} entries in RSS feed`)
-
-    const videos: Video[] = entries.slice(0, 5).map((entry: string) => {
-      // Extract video ID dari link
-      const videoIdMatch = entry.match(/yt:videoId>([^<]+)<\/yt:videoId/)
-      const videoId = videoIdMatch ? videoIdMatch[1] : ""
-
-      // Extract title
-      const titleMatch = entry.match(/<title>([^<]+)<\/title>/)
-      const title = titleMatch ? titleMatch[1] : "Untitled"
-
-      // Extract thumbnail
-      const thumbnailMatch = entry.match(/media:thumbnail url="([^"]+)"/)
-      const thumbnail = thumbnailMatch ? thumbnailMatch[1] : `/placeholder.svg?height=180&width=320`
+    const videos: Video[] = (data.items || []).map((item: any) => {
+      const videoId = item.id.videoId
+      const title = item.snippet.title
+      const thumbnail = item.snippet.thumbnails?.high?.url || `/placeholder.svg?height=180&width=320`
 
       return {
         id: videoId,
@@ -112,7 +48,7 @@ export async function GET() {
       }
     })
 
-    console.log(`[v0] Successfully fetched ${videos.length} videos`)
+    console.log(`[v0] Successfully fetched ${videos.length} videos from YouTube Data API`)
     return Response.json({ videos })
   } catch (error) {
     console.error("[v0] Error fetching YouTube videos:", error)
