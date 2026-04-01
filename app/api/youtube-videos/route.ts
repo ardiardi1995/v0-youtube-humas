@@ -5,6 +5,18 @@ interface Video {
   url: string
 }
 
+// Helper to parse ISO 8601 duration to seconds
+function parseDuration(duration: string): number {
+  const regex = /PT(\d+H)?(\d+M)?(\d+S)?/
+  const matches = duration.match(regex)
+  
+  const hours = parseInt(matches?.[1] || 0) * 3600
+  const minutes = parseInt(matches?.[2] || 0) * 60
+  const seconds = parseInt(matches?.[3] || 0)
+  
+  return hours + minutes + seconds
+}
+
 export async function GET() {
   try {
     const apiKey = "AIzaSyBv-W6AMNxvB5MkKPF2BVjarqgcuDMTqsM"
@@ -12,43 +24,76 @@ export async function GET() {
 
     console.log(`[v0] Fetching videos from YouTube Data API v3 for channel: ${channelId}`)
 
-    // Use YouTube Data API v3 to search for videos
+    // Use YouTube Data API v3 to search for videos (fetch more to account for shorts filtering)
     const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search")
     searchUrl.searchParams.append("key", apiKey)
     searchUrl.searchParams.append("channelId", channelId)
     searchUrl.searchParams.append("part", "snippet")
     searchUrl.searchParams.append("order", "date")
-    searchUrl.searchParams.append("maxResults", "5")
+    searchUrl.searchParams.append("maxResults", "20")
     searchUrl.searchParams.append("type", "video")
 
-    console.log(`[v0] API URL: ${searchUrl.toString()}`)
+    console.log(`[v0] Searching for videos...`)
 
-    const response = await fetch(searchUrl.toString())
+    const searchResponse = await fetch(searchUrl.toString())
 
-    if (!response.ok) {
-      console.error(`[v0] API fetch failed with status ${response.status}`)
-      const errorText = await response.text()
-      console.error(`[v0] Error response: ${errorText}`)
-      throw new Error(`YouTube API error: ${response.status}`)
+    if (!searchResponse.ok) {
+      console.error(`[v0] Search API fetch failed with status ${searchResponse.status}`)
+      throw new Error(`YouTube API error: ${searchResponse.status}`)
     }
 
-    const data = await response.json()
-    console.log(`[v0] API response received with ${data.items?.length || 0} items`)
+    const searchData = await searchResponse.json()
+    console.log(`[v0] Search API response received with ${searchData.items?.length || 0} items`)
 
-    const videos: Video[] = (data.items || []).map((item: any) => {
-      const videoId = item.id.videoId
+    // Extract video IDs from search results
+    const videoIds = (searchData.items || []).map((item: any) => item.id.videoId)
+    console.log(`[v0] Video IDs to check: ${videoIds.join(", ")}`)
+
+    // Get video details including duration
+    const videosUrl = new URL("https://www.googleapis.com/youtube/v3/videos")
+    videosUrl.searchParams.append("key", apiKey)
+    videosUrl.searchParams.append("id", videoIds.join(","))
+    videosUrl.searchParams.append("part", "snippet,contentDetails")
+
+    console.log(`[v0] Fetching video details...`)
+
+    const videosResponse = await fetch(videosUrl.toString())
+
+    if (!videosResponse.ok) {
+      console.error(`[v0] Videos API fetch failed with status ${videosResponse.status}`)
+      throw new Error(`YouTube API error: ${videosResponse.status}`)
+    }
+
+    const videosData = await videosResponse.json()
+    console.log(`[v0] Videos API response received with ${videosData.items?.length || 0} items`)
+
+    // Filter out shorts (duration < 60 seconds) and limit to 5 videos
+    const videos: Video[] = []
+    for (const item of videosData.items || []) {
+      if (videos.length >= 5) break
+
+      const videoId = item.id
       const title = item.snippet.title
       const thumbnail = item.snippet.thumbnails?.high?.url || `/placeholder.svg?height=180&width=320`
+      const duration = parseDuration(item.contentDetails.duration)
 
-      return {
-        id: videoId,
-        title,
-        thumbnail,
-        url: `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&showinfo=0&enablejsapi=1`,
+      console.log(`[v0] Video: ${title}, Duration: ${duration}s`)
+
+      // Only include videos that are at least 60 seconds
+      if (duration >= 60) {
+        videos.push({
+          id: videoId,
+          title,
+          thumbnail,
+          url: `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&showinfo=0&enablejsapi=1`,
+        })
+        console.log(`[v0] Added to results`)
+      } else {
+        console.log(`[v0] Skipped (short video)`)
       }
-    })
+    }
 
-    console.log(`[v0] Successfully fetched ${videos.length} videos from YouTube Data API`)
+    console.log(`[v0] Successfully fetched ${videos.length} non-short videos from YouTube Data API`)
     return Response.json({ videos })
   } catch (error) {
     console.error("[v0] Error fetching YouTube videos:", error)
