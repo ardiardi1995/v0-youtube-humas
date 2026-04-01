@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import Script from "next/script"
 
 interface Video {
@@ -22,6 +22,7 @@ export default function VideoPlayer() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const playersRef = useRef<any[]>([])
 
   useEffect(() => {
     loadVideos()
@@ -39,6 +40,16 @@ export default function VideoPlayer() {
       return () => clearInterval(interval)
     }
   }, [videos.length, isPlaying])
+
+  // Stop video when slide changes
+  useEffect(() => {
+    playersRef.current.forEach((player) => {
+      if (player && typeof player.stopVideo === "function") {
+        player.stopVideo()
+      }
+    })
+    setIsPlaying(false)
+  }, [currentSlide])
 
   async function loadVideos() {
     try {
@@ -103,9 +114,10 @@ export default function VideoPlayer() {
   }
 
   function setupPlayers() {
+    playersRef.current = []
     const iframes = document.querySelectorAll(".video-iframe")
     iframes.forEach((iframe: any) => {
-      new window.YT.Player(iframe, {
+      const player = new window.YT.Player(iframe, {
         events: {
           onStateChange: (e: any) => {
             if (e.data === window.YT.PlayerState.PLAYING) {
@@ -116,6 +128,7 @@ export default function VideoPlayer() {
           },
         },
       })
+      playersRef.current.push(player)
     })
   }
 
