@@ -64,44 +64,45 @@ export async function GET() {
 
     const videosData = await videosResponse.json()
 
-    // Step 4: Check each video's aspect ratio using oEmbed API
+    // Step 4: Check each video's aspect ratio using oEmbed API (parallel requests)
     const videoItems = videosData.items || []
-    const horizontalVideos: any[] = []
+    
+    const oembedResults = await Promise.all(
+      videoItems.map(async (item: any) => {
+        const videoId = item.id
+        const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`
 
-    for (const item of videoItems) {
-      if (horizontalVideos.length >= 5) break // Stop when we have 5 horizontal videos
+        try {
+          const oembedResponse = await fetch(oembedUrl, { 
+            signal: AbortSignal.timeout(5000) // 5 second timeout per request
+          })
+          if (oembedResponse.ok) {
+            const oembedData = await oembedResponse.json()
+            const width = oembedData.width || 0
+            const height = oembedData.height || 0
 
-      const videoId = item.id
-      const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`
-
-      try {
-        const oembedResponse = await fetch(oembedUrl)
-        if (oembedResponse.ok) {
-          const oembedData = await oembedResponse.json()
-          const width = oembedData.width || 0
-          const height = oembedData.height || 0
-
-          if (width > 0 && height > 0) {
-            const aspectRatio = width / height
-            console.log(`[v0] Video "${item.snippet.title.substring(0, 25)}..." oEmbed: ${width}x${height}, ratio=${aspectRatio.toFixed(2)}`)
-
-            // 16:9 = 1.77, accept ratio > 1.2 (horizontal videos)
-            if (aspectRatio > 1.2) {
-              horizontalVideos.push({
-                id: item.id,
-                title: item.snippet.title,
-                thumbnail: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
-                url: `https://www.youtube-nocookie.com/embed/${item.id}?rel=0&showinfo=0&enablejsapi=1`,
-              })
+            if (width > 0 && height > 0) {
+              const aspectRatio = width / height
+              // 16:9 = 1.77, accept ratio > 1.2 (horizontal videos)
+              if (aspectRatio > 1.2) {
+                return {
+                  id: item.id,
+                  title: item.snippet.title,
+                  thumbnail: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
+                  url: `https://www.youtube-nocookie.com/embed/${item.id}?rel=0&showinfo=0&enablejsapi=1`,
+                }
+              }
             }
           }
+        } catch (err) {
+          // Ignore timeout/fetch errors for individual videos
         }
-      } catch (err) {
-        console.error(`[v0] oEmbed error for video ${videoId}:`, err)
-      }
-    }
+        return null
+      })
+    )
 
-    const videos = horizontalVideos
+    // Filter out nulls and take first 5
+    const videos = oembedResults.filter((v): v is NonNullable<typeof v> => v !== null).slice(0, 5)
 
     return NextResponse.json({ videos })
   } catch (error) {
