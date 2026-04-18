@@ -13,7 +13,7 @@ const nextConfig = {
         headers: [
           {
             key: "Content-Security-Policy",
-            value: "frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com; script-src 'self' 'unsafe-inline' https://www.youtube.com; connect-src 'self' https://www.youtube.com https://www.googleapis.com",
+            value: "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com *.youtube.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://s.ytimg.com; connect-src 'self' https://www.youtube.com https://www.googleapis.com https://s.ytimg.com",
           },
           {
             key: "X-Frame-Options",

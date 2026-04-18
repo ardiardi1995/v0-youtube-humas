@@ -109,7 +109,7 @@ export async function GET() {
         id: videoId,
         title,
         thumbnail,
-        url: `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&showinfo=0&enablejsapi=1`,
+        url: `https://www.youtube.com/embed/${videoId}?rel=0&showinfo=0&enablejsapi=1`,
       })
       
       console.log(`[v0] Added to results`)
