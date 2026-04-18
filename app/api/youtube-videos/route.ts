@@ -49,8 +49,8 @@ export async function GET() {
     const playlistData = await playlistResponse.json()
     const videoIds = (playlistData.items || []).map((item: any) => item.snippet.resourceId.videoId).join(",")
 
-    // Step 3: Get video details to check duration (filter out Shorts < 60 seconds)
-    const videosUrl = `https://www.googleapis.com/youtube/v3/videos?key=${YOUTUBE_API_KEY}&id=${videoIds}&part=contentDetails,snippet`
+    // Step 3: Get video details including player info for aspect ratio detection
+    const videosUrl = `https://www.googleapis.com/youtube/v3/videos?key=${YOUTUBE_API_KEY}&id=${videoIds}&part=contentDetails,snippet,player`
 
     const videosResponse = await fetch(videosUrl, {
       next: { revalidate: 3600 },
@@ -64,25 +64,39 @@ export async function GET() {
 
     const videosData = await videosResponse.json()
 
-    // Filter out Shorts by checking thumbnail aspect ratio (16:9 = horizontal video)
+    // Debug: log video data to check player dimensions
+    videosData.items?.slice(0, 5).forEach((item: any, index: number) => {
+      const embedWidth = item.player?.embedWidth
+      const embedHeight = item.player?.embedHeight
+      console.log(`[v0] Video ${index}: title="${item.snippet.title.substring(0, 30)}...", embedSize=${embedWidth}x${embedHeight}`)
+    })
+
+    // Filter out Shorts by checking embed dimensions (player.embedWidth/embedHeight)
     const videos = (videosData.items || [])
       .filter((item: any) => {
-        // Check thumbnail dimensions - horizontal videos have wider thumbnails
-        const thumbnail = item.snippet.thumbnails?.maxres || 
-                         item.snippet.thumbnails?.high || 
-                         item.snippet.thumbnails?.medium ||
-                         item.snippet.thumbnails?.default
+        const embedWidth = item.player?.embedWidth
+        const embedHeight = item.player?.embedHeight
         
-        if (thumbnail && thumbnail.width && thumbnail.height) {
-          const aspectRatio = thumbnail.width / thumbnail.height
+        if (embedWidth && embedHeight) {
+          const aspectRatio = parseInt(embedWidth) / parseInt(embedHeight)
           // 16:9 ratio is ~1.77, Shorts (9:16) would be ~0.56
-          // Accept videos with aspect ratio > 1.3 (horizontal)
-          return aspectRatio > 1.3
+          // Accept only horizontal videos with aspect ratio > 1.2
+          console.log(`[v0] Video "${item.snippet.title.substring(0, 20)}..." aspectRatio=${aspectRatio.toFixed(2)}`)
+          return aspectRatio > 1.2
         }
         
-        // Fallback: check if title contains #shorts (common pattern)
-        const title = item.snippet.title?.toLowerCase() || ""
-        return !title.includes("#shorts") && !title.includes("shorts")
+        // If no embed dimensions, fall back to duration check (Shorts are usually < 60s)
+        const duration = item.contentDetails?.duration || ""
+        const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/)
+        if (match) {
+          const hours = parseInt(match[1] || "0", 10)
+          const minutes = parseInt(match[2] || "0", 10)
+          const seconds = parseInt(match[3] || "0", 10)
+          const totalSeconds = hours * 3600 + minutes * 60 + seconds
+          return totalSeconds >= 180 // Filter out videos shorter than 3 minutes as potential Shorts
+        }
+        
+        return true
       })
       .slice(0, 5) // Take only 5 videos
       .map((item: any) => ({
