@@ -34,7 +34,7 @@ export async function GET() {
     const uploadsPlaylistId = channelData.items[0].contentDetails.relatedPlaylists.uploads
 
     // Step 2: Get latest videos from uploads playlist (fetch more to filter out Shorts)
-    const playlistUrl = `https://www.googleapis.com/youtube/v3/playlistItems?key=${YOUTUBE_API_KEY}&playlistId=${uploadsPlaylistId}&part=snippet&maxResults=20`
+    const playlistUrl = `https://www.googleapis.com/youtube/v3/playlistItems?key=${YOUTUBE_API_KEY}&playlistId=${uploadsPlaylistId}&part=snippet&maxResults=5`
 
     const playlistResponse = await fetch(playlistUrl, {
       next: { revalidate: 3600 },
@@ -47,62 +47,13 @@ export async function GET() {
     }
 
     const playlistData = await playlistResponse.json()
-    const videoIds = (playlistData.items || []).map((item: any) => item.snippet.resourceId.videoId).join(",")
 
-    // Step 3: Get video details including player info for aspect ratio detection
-    const videosUrl = `https://www.googleapis.com/youtube/v3/videos?key=${YOUTUBE_API_KEY}&id=${videoIds}&part=contentDetails,snippet,player`
-
-    const videosResponse = await fetch(videosUrl, {
-      next: { revalidate: 3600 },
-    })
-
-    if (!videosResponse.ok) {
-      const errorData = await videosResponse.json()
-      console.error("Videos API error:", errorData)
-      throw new Error(`Videos API error: ${videosResponse.status}`)
-    }
-
-    const videosData = await videosResponse.json()
-
-    // Step 4: Check each video's aspect ratio using oEmbed API (parallel requests)
-    const videoItems = videosData.items || []
-    
-    const oembedResults = await Promise.all(
-      videoItems.map(async (item: any) => {
-        const videoId = item.id
-        const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`
-
-        try {
-          const oembedResponse = await fetch(oembedUrl, { 
-            signal: AbortSignal.timeout(5000) // 5 second timeout per request
-          })
-          if (oembedResponse.ok) {
-            const oembedData = await oembedResponse.json()
-            const width = oembedData.width || 0
-            const height = oembedData.height || 0
-
-            if (width > 0 && height > 0) {
-              const aspectRatio = width / height
-              // 16:9 = 1.77, accept ratio > 1.2 (horizontal videos)
-              if (aspectRatio > 1.2) {
-                return {
-                  id: item.id,
-                  title: item.snippet.title,
-                  thumbnail: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
-                  url: `https://www.youtube-nocookie.com/embed/${item.id}?rel=0&showinfo=0&enablejsapi=1`,
-                }
-              }
-            }
-          }
-        } catch (err) {
-          // Ignore timeout/fetch errors for individual videos
-        }
-        return null
-      })
-    )
-
-    // Filter out nulls and take first 5
-    const videos = oembedResults.filter((v): v is NonNullable<typeof v> => v !== null).slice(0, 5)
+    const videos = (playlistData.items || []).map((item: any) => ({
+      id: item.snippet.resourceId.videoId,
+      title: item.snippet.title,
+      thumbnail: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
+      url: `https://www.youtube-nocookie.com/embed/${item.snippet.resourceId.videoId}?rel=0&showinfo=0&enablejsapi=1`,
+    }))
 
     return NextResponse.json({ videos })
   } catch (error) {
