@@ -177,6 +177,7 @@ export default function VideoPlayer() {
                 }`}
                 allow="autoplay; encrypted-media"
                 allowFullScreen
+                referrerPolicy="no-referrer-when-downgrade"
               />
             ))}
           </div>
