@@ -1,39 +1,40 @@
 import { NextResponse } from "next/server"
 
-const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY
-const CHANNEL_ID = process.env.YOUTUBE_CHANNEL_ID || "UCxxxxxxxxxxxxxxxxxx" // Ganti dengan Channel ID
+// Channel ID untuk @PemkabGowa
+const CHANNEL_ID = "UCgS4I9aIjmYBflvWjPgIRaw"
 
 export async function GET() {
   try {
-    if (!YOUTUBE_API_KEY) {
-      console.error("[v0] YOUTUBE_API_KEY tidak ditemukan")
-      return NextResponse.json(
-        { error: "YouTube API key belum dikonfigurasi", videos: [] },
-        { status: 500 }
-      )
-    }
+    // Menggunakan RSS feed YouTube yang lebih reliable
+    const rssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${CHANNEL_ID}`
 
-    // Fetch video terbaru dari channel menggunakan YouTube Data API v3
-    const searchUrl = `https://www.googleapis.com/youtube/v3/search?key=${YOUTUBE_API_KEY}&channelId=${CHANNEL_ID}&part=snippet&order=date&maxResults=5&type=video`
-
-    const response = await fetch(searchUrl, {
+    const response = await fetch(rssUrl, {
       next: { revalidate: 3600 }, // Cache selama 1 jam
     })
 
     if (!response.ok) {
-      const errorData = await response.json()
-      console.error("[v0] YouTube API error:", errorData)
-      throw new Error(`YouTube API error: ${response.status}`)
+      throw new Error(`Failed to fetch RSS feed: ${response.status}`)
     }
 
-    const data = await response.json()
+    const xmlText = await response.text()
 
-    const videos = (data.items || []).map((item: any) => ({
-      id: item.id.videoId,
-      title: item.snippet.title,
-      thumbnail: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.default?.url,
-      url: `https://www.youtube-nocookie.com/embed/${item.id.videoId}?rel=0&showinfo=0&enablejsapi=1`,
-    }))
+    // Parse XML untuk mengambil video entries
+    const entries = xmlText.match(/<entry>[\s\S]*?<\/entry>/g) || []
+
+    const videos = entries.slice(0, 5).map((entry) => {
+      const videoIdMatch = entry.match(/<yt:videoId>([^<]+)<\/yt:videoId>/)
+      const titleMatch = entry.match(/<title>([^<]+)<\/title>/)
+
+      const videoId = videoIdMatch ? videoIdMatch[1] : ""
+      const title = titleMatch ? titleMatch[1] : ""
+
+      return {
+        id: videoId,
+        title: title,
+        thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+        url: `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&showinfo=0&enablejsapi=1`,
+      }
+    })
 
     return NextResponse.json({ videos })
   } catch (error) {
