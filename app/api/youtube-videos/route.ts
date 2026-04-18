@@ -1,51 +1,66 @@
+import { NextResponse } from "next/server"
+
+const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY
+const CHANNEL_HANDLE = "@PemkabGowa"
+
 export async function GET() {
   try {
-    const channelHandle = "@HumasGowa"
+    if (!YOUTUBE_API_KEY) {
+      return NextResponse.json(
+        { error: "YouTube API key belum dikonfigurasi", videos: [] },
+        { status: 500 }
+      )
+    }
 
-    // Fetch halaman channel
-    const channelUrl = `https://www.youtube.com/${channelHandle}/videos`
-    const response = await fetch(channelUrl, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      },
+    // Step 1: Get channel ID and uploads playlist ID from handle
+    const channelUrl = `https://www.googleapis.com/youtube/v3/channels?key=${YOUTUBE_API_KEY}&forHandle=${CHANNEL_HANDLE}&part=contentDetails,snippet`
+    
+    const channelResponse = await fetch(channelUrl, {
+      next: { revalidate: 3600 },
     })
 
-    if (!response.ok) {
-      throw new Error("Failed to fetch channel page")
+    if (!channelResponse.ok) {
+      const errorData = await channelResponse.json()
+      console.error("Channel API error:", errorData)
+      throw new Error(`Channel API error: ${channelResponse.status}`)
     }
 
-    const html = await response.text()
+    const channelData = await channelResponse.json()
 
-    // Extract video data dari ytInitialData
-    const ytInitialDataMatch = html.match(/var ytInitialData = ({.+?});/)
-    if (!ytInitialDataMatch) {
-      throw new Error("Could not find video data")
+    if (!channelData.items || channelData.items.length === 0) {
+      return NextResponse.json({ error: "Channel tidak ditemukan", videos: [] }, { status: 404 })
     }
 
-    const data = JSON.parse(ytInitialDataMatch[1])
+    const uploadsPlaylistId = channelData.items[0].contentDetails.relatedPlaylists.uploads
 
-    // Navigate to video list
-    const tabs = data?.contents?.twoColumnBrowseResultsRenderer?.tabs || []
-    const videosTab = tabs.find((tab: any) => tab.tabRenderer?.title === "Videos" || tab.tabRenderer?.selected === true)
+    // Step 2: Get latest videos from uploads playlist (fetch more to filter out Shorts)
+    const playlistUrl = `https://www.googleapis.com/youtube/v3/playlistItems?key=${YOUTUBE_API_KEY}&playlistId=${uploadsPlaylistId}&part=snippet&maxResults=5`
 
-    const videoItems = videosTab?.tabRenderer?.content?.richGridRenderer?.contents || []
+    const playlistResponse = await fetch(playlistUrl, {
+      next: { revalidate: 3600 },
+    })
 
-    const videos = videoItems
-      .filter((item: any) => item.richItemRenderer?.content?.videoRenderer)
-      .map((item: any) => {
-        const video = item.richItemRenderer.content.videoRenderer
-        return {
-          id: video.videoId,
-          title: video.title.runs?.[0]?.text || video.title.simpleText || "",
-          url: `https://www.youtube-nocookie.com/embed/${video.videoId}?rel=0&showinfo=0&enablejsapi=1`,
-        }
-      })
-      .slice(0, 5)
+    if (!playlistResponse.ok) {
+      const errorData = await playlistResponse.json()
+      console.error("Playlist API error:", errorData)
+      throw new Error(`Playlist API error: ${playlistResponse.status}`)
+    }
 
-    return Response.json({ videos })
+    const playlistData = await playlistResponse.json()
+
+    const videos = (playlistData.items || []).map((item: any) => ({
+      id: item.snippet.resourceId.videoId,
+      title: item.snippet.title,
+      thumbnail: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
+      url: `https://www.youtube-nocookie.com/embed/${item.snippet.resourceId.videoId}?rel=0&showinfo=0&enablejsapi=1`,
+    }))
+
+    return NextResponse.json({ videos })
   } catch (error) {
-    console.error("[v0] Error fetching YouTube videos:", error)
-    return Response.json({ error: "Failed to fetch videos", videos: [] }, { status: 500 })
+    console.error("Error fetching YouTube videos:", error)
+    return NextResponse.json(
+      { error: "Gagal memuat video dari YouTube", videos: [] },
+      { status: 500 }
+    )
   }
 }
