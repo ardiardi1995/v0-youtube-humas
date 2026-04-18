@@ -64,47 +64,44 @@ export async function GET() {
 
     const videosData = await videosResponse.json()
 
-    // Debug: log video data to check player dimensions
-    videosData.items?.slice(0, 5).forEach((item: any, index: number) => {
-      const embedWidth = item.player?.embedWidth
-      const embedHeight = item.player?.embedHeight
-      console.log(`[v0] Video ${index}: title="${item.snippet.title.substring(0, 30)}...", embedSize=${embedWidth}x${embedHeight}`)
-    })
+    // Step 4: Check each video's aspect ratio using oEmbed API
+    const videoItems = videosData.items || []
+    const horizontalVideos: any[] = []
 
-    // Filter out Shorts by checking embed dimensions (player.embedWidth/embedHeight)
-    const videos = (videosData.items || [])
-      .filter((item: any) => {
-        const embedWidth = item.player?.embedWidth
-        const embedHeight = item.player?.embedHeight
-        
-        if (embedWidth && embedHeight) {
-          const aspectRatio = parseInt(embedWidth) / parseInt(embedHeight)
-          // 16:9 ratio is ~1.77, Shorts (9:16) would be ~0.56
-          // Accept only horizontal videos with aspect ratio > 1.2
-          console.log(`[v0] Video "${item.snippet.title.substring(0, 20)}..." aspectRatio=${aspectRatio.toFixed(2)}`)
-          return aspectRatio > 1.2
+    for (const item of videoItems) {
+      if (horizontalVideos.length >= 5) break // Stop when we have 5 horizontal videos
+
+      const videoId = item.id
+      const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`
+
+      try {
+        const oembedResponse = await fetch(oembedUrl)
+        if (oembedResponse.ok) {
+          const oembedData = await oembedResponse.json()
+          const width = oembedData.width || 0
+          const height = oembedData.height || 0
+
+          if (width > 0 && height > 0) {
+            const aspectRatio = width / height
+            console.log(`[v0] Video "${item.snippet.title.substring(0, 25)}..." oEmbed: ${width}x${height}, ratio=${aspectRatio.toFixed(2)}`)
+
+            // 16:9 = 1.77, accept ratio > 1.2 (horizontal videos)
+            if (aspectRatio > 1.2) {
+              horizontalVideos.push({
+                id: item.id,
+                title: item.snippet.title,
+                thumbnail: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
+                url: `https://www.youtube-nocookie.com/embed/${item.id}?rel=0&showinfo=0&enablejsapi=1`,
+              })
+            }
+          }
         }
-        
-        // If no embed dimensions, fall back to duration check (Shorts are usually < 60s)
-        const duration = item.contentDetails?.duration || ""
-        const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/)
-        if (match) {
-          const hours = parseInt(match[1] || "0", 10)
-          const minutes = parseInt(match[2] || "0", 10)
-          const seconds = parseInt(match[3] || "0", 10)
-          const totalSeconds = hours * 3600 + minutes * 60 + seconds
-          return totalSeconds >= 180 // Filter out videos shorter than 3 minutes as potential Shorts
-        }
-        
-        return true
-      })
-      .slice(0, 5) // Take only 5 videos
-      .map((item: any) => ({
-        id: item.id,
-        title: item.snippet.title,
-        thumbnail: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
-        url: `https://www.youtube-nocookie.com/embed/${item.id}?rel=0&showinfo=0&enablejsapi=1`,
-      }))
+      } catch (err) {
+        console.error(`[v0] oEmbed error for video ${videoId}:`, err)
+      }
+    }
+
+    const videos = horizontalVideos
 
     return NextResponse.json({ videos })
   } catch (error) {
