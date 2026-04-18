@@ -1,52 +1,51 @@
-import { NextResponse } from "next/server"
-
-// Channel ID untuk @PemkabGowa
-const CHANNEL_ID = "UCgS4I9aIjmYBflvWjPgIRaw"
-
 export async function GET() {
   try {
-    // Menggunakan RSS feed YouTube yang tidak memerlukan API key
-    const rssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${CHANNEL_ID}`
+    const channelHandle = "@PemkabGowa"
 
-    const response = await fetch(rssUrl, {
-      next: { revalidate: 3600 }, // Cache selama 1 jam
+    // Fetch halaman channel
+    const channelUrl = `https://www.youtube.com/${channelHandle}/videos`
+    const response = await fetch(channelUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      },
     })
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch RSS feed: ${response.status}`)
+      throw new Error("Failed to fetch channel page")
     }
 
-    const xmlText = await response.text()
+    const html = await response.text()
 
-    // Parse XML untuk mengekstrak video
-    const videoIdRegex = /<yt:videoId>([^<]+)<\/yt:videoId>/g
-    const titleRegex = /<media:title>([^<]+)<\/media:title>/g
-
-    const videoIds: string[] = []
-    const titles: string[] = []
-
-    let match
-    while ((match = videoIdRegex.exec(xmlText)) !== null) {
-      videoIds.push(match[1])
-    }
-    while ((match = titleRegex.exec(xmlText)) !== null) {
-      titles.push(match[1])
+    // Extract video data dari ytInitialData
+    const ytInitialDataMatch = html.match(/var ytInitialData = ({.+?});/)
+    if (!ytInitialDataMatch) {
+      throw new Error("Could not find video data")
     }
 
-    // Ambil 5 video terbaru
-    const videos = videoIds.slice(0, 5).map((id, index) => ({
-      id,
-      title: titles[index] || "Video",
-      thumbnail: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
-      url: `https://www.youtube-nocookie.com/embed/${id}?rel=0&showinfo=0&enablejsapi=1`,
-    }))
+    const data = JSON.parse(ytInitialDataMatch[1])
 
-    return NextResponse.json({ videos })
+    // Navigate to video list
+    const tabs = data?.contents?.twoColumnBrowseResultsRenderer?.tabs || []
+    const videosTab = tabs.find((tab: any) => tab.tabRenderer?.title === "Videos" || tab.tabRenderer?.selected === true)
+
+    const videoItems = videosTab?.tabRenderer?.content?.richGridRenderer?.contents || []
+
+    const videos = videoItems
+      .filter((item: any) => item.richItemRenderer?.content?.videoRenderer)
+      .map((item: any) => {
+        const video = item.richItemRenderer.content.videoRenderer
+        return {
+          id: video.videoId,
+          title: video.title.runs?.[0]?.text || video.title.simpleText || "",
+          url: `https://www.youtube-nocookie.com/embed/${video.videoId}?rel=0&showinfo=0&enablejsapi=1`,
+        }
+      })
+      .slice(0, 5)
+
+    return Response.json({ videos })
   } catch (error) {
     console.error("[v0] Error fetching YouTube videos:", error)
-    return NextResponse.json(
-      { error: "Gagal memuat video dari YouTube", videos: [] },
-      { status: 500 }
-    )
+    return Response.json({ error: "Failed to fetch videos", videos: [] }, { status: 500 })
   }
 }
