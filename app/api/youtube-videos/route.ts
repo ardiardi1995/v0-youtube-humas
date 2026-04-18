@@ -64,17 +64,25 @@ export async function GET() {
 
     const videosData = await videosResponse.json()
 
-    // Filter out Shorts (duration < 60 seconds) and take only 5 videos
+    // Filter out Shorts by checking thumbnail aspect ratio (16:9 = horizontal video)
     const videos = (videosData.items || [])
       .filter((item: any) => {
-        const duration = item.contentDetails.duration // Format: PT#M#S or PT#S
-        const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/)
-        if (!match) return false
-        const hours = parseInt(match[1] || "0", 10)
-        const minutes = parseInt(match[2] || "0", 10)
-        const seconds = parseInt(match[3] || "0", 10)
-        const totalSeconds = hours * 3600 + minutes * 60 + seconds
-        return totalSeconds >= 60 // Filter out videos shorter than 60 seconds (Shorts)
+        // Check thumbnail dimensions - horizontal videos have wider thumbnails
+        const thumbnail = item.snippet.thumbnails?.maxres || 
+                         item.snippet.thumbnails?.high || 
+                         item.snippet.thumbnails?.medium ||
+                         item.snippet.thumbnails?.default
+        
+        if (thumbnail && thumbnail.width && thumbnail.height) {
+          const aspectRatio = thumbnail.width / thumbnail.height
+          // 16:9 ratio is ~1.77, Shorts (9:16) would be ~0.56
+          // Accept videos with aspect ratio > 1.3 (horizontal)
+          return aspectRatio > 1.3
+        }
+        
+        // Fallback: check if title contains #shorts (common pattern)
+        const title = item.snippet.title?.toLowerCase() || ""
+        return !title.includes("#shorts") && !title.includes("shorts")
       })
       .slice(0, 5) // Take only 5 videos
       .map((item: any) => ({
