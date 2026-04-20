@@ -173,13 +173,6 @@ export default function VideoPlayer() {
             ))}
           </div>
 
-          {/* Video Title - Always Visible */}
-          <div className="absolute top-8 left-0 right-0 px-6 z-30 flex items-center justify-center">
-            <h1 className="text-white text-2xl font-bold font-sans text-center max-w-4xl line-clamp-2">
-              {videos[currentSlide].title}
-            </h1>
-          </div>
-
           {/* Dots Navigation */}
           <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-2.5 z-20">
             {videos.map((_, index) => (
