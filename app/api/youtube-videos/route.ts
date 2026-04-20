@@ -24,13 +24,13 @@ export async function GET() {
 
     console.log(`[v0] Fetching videos using YouTube Data API v3 for channel: ${channelId}`)
 
-    // Step 1: Search for latest videos (fetch 20 to account for shorts filtering)
+    // Step 1: Search for latest videos (fetch 50 to ensure we get 5+ non-short videos after filtering)
     const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search")
     searchUrl.searchParams.append("key", apiKey)
     searchUrl.searchParams.append("channelId", channelId)
     searchUrl.searchParams.append("part", "snippet")
     searchUrl.searchParams.append("order", "date")
-    searchUrl.searchParams.append("maxResults", "20")
+    searchUrl.searchParams.append("maxResults", "50")
     searchUrl.searchParams.append("type", "video")
 
     console.log(`[v0] Step 1: Searching for videos...`)
