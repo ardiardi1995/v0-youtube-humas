@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import Script from "next/script"
 
 interface Video {
@@ -22,10 +22,10 @@ export default function VideoPlayer() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const playersRef = useRef<any[]>([])
 
   useEffect(() => {
     loadVideos()
-    // Schedule daily update at 7 AM WITA (UTC+8)
     scheduleDailyUpdate()
   }, [])
 
@@ -39,6 +39,15 @@ export default function VideoPlayer() {
       return () => clearInterval(interval)
     }
   }, [videos.length, isPlaying])
+
+  useEffect(() => {
+    playersRef.current.forEach((player) => {
+      if (player && typeof player.stopVideo === "function") {
+        player.stopVideo()
+      }
+    })
+    setIsPlaying(false)
+  }, [currentSlide])
 
   async function loadVideos() {
     try {
@@ -58,12 +67,11 @@ export default function VideoPlayer() {
       setVideos(data.videos || [])
       setLoading(false)
 
-      // Initialize YouTube IFrame API after videos are loaded
       if (typeof window !== "undefined" && data.videos?.length > 0) {
         initYouTubeAPI()
       }
     } catch (err) {
-      console.error("[v0] Gagal memuat video:", err)
+      console.error("[v0] Failed to load videos:", err)
       setError("Gagal memuat video dari YouTube")
       setLoading(false)
     }
@@ -71,16 +79,12 @@ export default function VideoPlayer() {
 
   function scheduleDailyUpdate() {
     const now = new Date()
-
-    // WITA is UTC+8
     const witaOffset = 8 * 60 * 60 * 1000
     const nowWita = new Date(now.getTime() + witaOffset - now.getTimezoneOffset() * 60 * 1000)
 
-    // Set target to 7 AM WITA
     const target = new Date(nowWita)
     target.setHours(7, 0, 0, 0)
 
-    // If 7 AM has passed today, schedule for tomorrow
     if (nowWita >= target) {
       target.setDate(target.getDate() + 1)
     }
@@ -89,7 +93,6 @@ export default function VideoPlayer() {
 
     setTimeout(() => {
       loadVideos()
-      // Schedule next update (24 hours later)
       setInterval(loadVideos, 24 * 60 * 60 * 1000)
     }, msUntil7AM)
   }
@@ -103,9 +106,10 @@ export default function VideoPlayer() {
   }
 
   function setupPlayers() {
+    playersRef.current = []
     const iframes = document.querySelectorAll(".video-iframe")
     iframes.forEach((iframe: any) => {
-      new window.YT.Player(iframe, {
+      const player = new window.YT.Player(iframe, {
         events: {
           onStateChange: (e: any) => {
             if (e.data === window.YT.PlayerState.PLAYING) {
@@ -116,6 +120,7 @@ export default function VideoPlayer() {
           },
         },
       })
+      playersRef.current.push(player)
     })
   }
 
